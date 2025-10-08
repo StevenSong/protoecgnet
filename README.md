@@ -1,7 +1,7 @@
 # ProtoECGNet
 Case-based interpretable deep learning for ECG classification. This code implements ProtoECGNet from the following paper: 
 
-> [**ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG Classification**](https://static1.squarespace.com/static/59d5ac1780bd5ef9c396eda6/t/689b7c62de5b333dcc192c7f/1755020386053/100_camera_ready+-+Sahil+Sethi.pdf)<br/>
+> [**ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG Classification**](https://proceedings.mlr.press/v298/sethi25a.html)<br/>
  Sahil Sethi, David Chen, Thomas Statchen, Michael C. Burkhart, Nipun Bhandari, Bashar Ramadan, & Brett Beaulieu-Jones. <b>10th Machine Learning for Healthcare Conference  (MLHC), Proceedings of Machine Learning Research 298</b>.
 
 
@@ -154,13 +154,18 @@ python tune.py \
 Please cite our paper below: 
 
 ```bibtex
-@misc{sethi2025protoecgnetcasebasedinterpretabledeep,
-      title={ProtoECGNet: Case-Based Interpretable Deep Learning for Multi-Label ECG Classification with Contrastive Learning}, 
-      author={Sahil Sethi and David Chen and Thomas Statchen and Michael C. Burkhart and Nipun Bhandari and Bashar Ramadan and Brett Beaulieu-Jones},
-      year={2025},
-      eprint={2504.08713},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2504.08713}, 
+@InProceedings{pmlr-v298-sethi25a,
+  title = 	 {Proto{ECGN}et: Case-Based Interpretable Deep Learning for Multi-Label {ECG} Classification with Contrastive Learning},
+  author =       {Sethi, Sahil and Chen, David and Statchen, Thomas and Burkhart, Michael C. and Bhandari, Nipun and Ramadan, Bashar and Beaulieu-Jones, Brett},
+  booktitle = 	 {Proceedings of the 10th Machine Learning for Healthcare Conference},
+  year = 	 {2025},
+  editor = 	 {Agrawal, Monica and Deshpande, Kaivalya and Engelhard, Matthew and Joshi, Shalmali and Tang, Shengpu and Urteaga, Iñigo},
+  volume = 	 {298},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {15--16 Aug},
+  publisher =    {PMLR},
+  pdf = 	 {https://raw.githubusercontent.com/mlresearch/v298/main/assets/sethi25a/sethi25a.pdf},
+  url = 	 {https://proceedings.mlr.press/v298/sethi25a.html},
 }
+
 ```
