@@ -125,15 +125,15 @@ class ProtoECGNet1D(nn.Module):
         try:
             if self.custom_groups:
                 if self.label_set == "1":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat1.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt"
                 elif self.label_set == "3":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat3.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt"
                 elif self.label_set == "4":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat4.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt"
                 else:
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur.pt"
+                    raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
             else:
-                path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_all.pt"
+                raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
 
             cooc_matrix = torch.load(path)
             self.label_cooccurrence = cooc_matrix.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
