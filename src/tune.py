@@ -132,7 +132,7 @@ def objective(trial):
         "scheduler_type": trial.suggest_categorical("scheduler", [
             "ReduceLROnPlateau", "CosineAnnealingLR", "CyclicLR"
         ]),
-        "batch_size": trial.suggest_categorical("batch_size", [2048]), # max power of 2 batch size for 80GB of VRAM for both 1D and 2D models, find optimal LR for this batch size, unsure if other params affected by batch size
+        "batch_size": args.batch_size, # 2048 batch size is max power of 2 batch size for 80GB of VRAM for both 1D and 2D models, find optimal LR for this batch size, unsure if other params affected by batch size
         "l2": trial.suggest_float("l2", 1e-6, 1e-2, log=True), 
         "l1": trial.suggest_float("l1", 1e-6, 1e-2, log=True),  #args.l1
         "dropout": trial.suggest_float("dropout", 0.0, 0.5),  
@@ -243,12 +243,11 @@ def objective(trial):
     )
 
     if args.training_stage == "fusion":
-        label_map = load_fusion_label_mappings()
-
-        num_classes1 = len(label_map["1"])
-        num_classes3 = len(label_map["3"])
-        num_classes4 = len(label_map["4"])
-
+        # use load_label_mappings which is agnostic to ptbxl or echonext
+        # "all" labels were not used directly in this function with prior usage of load_fusion_label_mappings
+        num_classes1 = len(load_label_mappings(custom_groups=True, prototype_category=1)["custom"])
+        num_classes3 = len(load_label_mappings(custom_groups=True, prototype_category=3)["custom"])
+        num_classes4 = len(load_label_mappings(custom_groups=True, prototype_category=4)["custom"])
 
         print("Loading pretrained 1D and 2D models for fusion...")
 
@@ -318,7 +317,13 @@ def objective(trial):
                 for param in m.parameters():
                     param.requires_grad = False
 
-        model = FusionProtoClassifier(model_1d, model_2d_partial, model_2d_global, num_classes=71)
+        model = FusionProtoClassifier(
+            model_1d=model_1d,
+            model_2d_partial=model_2d_partial,
+            model_2d_global=model_2d_global,
+            # num_classes=71,
+            num_classes=12, # target classes for classifier (for echonext experiments, this is not simply the sum of classes per category as we duplicate classes across categories)
+        )
         print(f"Fusion classifier initialized. Getting dataloaders...")
         train_loader, val_loader, test_loader, class_weights = get_fusion_dataloaders(args, return_sample_ids=False)
 

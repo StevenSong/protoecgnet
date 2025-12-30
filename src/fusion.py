@@ -37,6 +37,8 @@ class FusionProtoClassifier(nn.Module):
         return logits
         
 # THE CODE BELOW IS NOT USED; instead, we call the normal dataloading code and use label_set='all' with custom_groups=False
+# NOTE pretty sure this is used in `get_fusion_dataloaders`, part of the fusion tuning pipeline?
+# NOTE though we will just use some custom logic for echonext implementation
 def load_fusion_label_mappings():
     label_df = pd.read_csv(os.path.join(DATASET_PATH, "scp_statementsRegrouped2.csv"), index_col=0)
     assert "prototype_category" in label_df.columns
@@ -55,6 +57,61 @@ def load_fusion_label_mappings():
     }
 
 def get_fusion_dataloaders(args, return_sample_ids=False):
+    # logic copied from ecg_utils.py, maybe modularize
+    _PATH = DATASET_PATH.lower()
+    if "ptbxl" in _PATH or "ptb-xl" in _PATH:
+        get_dl_fn = _get_ptbxl_fusion_dataloaders
+    elif "echonext" in _PATH or "echo-next" in _PATH:
+        get_dl_fn = _get_echonext_fusion_dataloaders
+    else:
+        raise ValueError(f"Could not infer dataset type based on DATASET_PATH={DATASET_PATH}")
+
+    return get_dl_fn(args, return_sample_ids)
+
+def _get_echonext_fusion_dataloaders(args, return_sample_ids):
+    train_loader, val_loader, test_loader, class_weights = get_dataloaders(
+        batch_size=args.batch_size,
+        mode="2D",  # needed for shape (N, 1, 12, 1000)
+        sampling_rate=args.sampling_rate,
+        standardize=args.standardize,
+        remove_baseline=args.remove_baseline,
+        return_sample_ids=return_sample_ids,
+        custom_groups=True,
+        label_set="1",  # all echonext labels are duplicated across categories so just use cat 1 arbitrarily
+        work_num=args.num_workers
+    )
+
+    def collate_fn(batch):
+        inputs, labels = zip(*batch)
+        inputs = torch.stack(inputs)
+        labels = torch.stack(labels)
+
+        # TODO if we ever undiplicate labels from all categories for echonext, will need to revisit filtering here
+        return inputs, {
+            "1D": labels,
+            "2D_partial": labels,
+            "2D_global": labels,
+            "full": labels
+        }
+
+    def wrap_loader(loader, shuffle=True):
+        return torch.utils.data.DataLoader(
+            loader.dataset,
+            batch_size=loader.batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn,
+            num_workers=args.num_workers,
+            pin_memory=True
+        )
+
+    return (
+        wrap_loader(train_loader, shuffle=True),
+        wrap_loader(val_loader, shuffle=False),
+        wrap_loader(test_loader, shuffle=False),
+        class_weights
+    )
+
+def _get_ptbxl_fusion_dataloaders(args, return_sample_ids):
     label_mappings = load_fusion_label_mappings()
 
     # Get input ECGs and full labels
