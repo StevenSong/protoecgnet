@@ -100,6 +100,7 @@ job_test_dir = os.path.join(args.test_dir, args.job_name)
 os.makedirs(job_checkpoint_dir, exist_ok=True)
 os.makedirs(job_log_dir, exist_ok=True)
 os.makedirs(job_test_dir, exist_ok=True)
+os.makedirs(args.study_dir, exist_ok=True)
 
 study_save_path = os.path.join(args.study_dir, f"{args.job_name}_optuna_study.pkl")
 
@@ -131,13 +132,13 @@ def objective(trial):
         "scheduler_type": trial.suggest_categorical("scheduler", [
             "ReduceLROnPlateau", "CosineAnnealingLR", "CyclicLR"
         ]),
-        "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64]),
+        "batch_size": trial.suggest_categorical("batch_size", [2048]), # max power of 2 batch size for 80GB of VRAM for both 1D and 2D models, find optimal LR for this batch size, unsure if other params affected by batch size
         "l2": trial.suggest_float("l2", 1e-6, 1e-2, log=True), 
         "l1": trial.suggest_float("l1", 1e-6, 1e-2, log=True),  #args.l1
         "dropout": trial.suggest_float("dropout", 0.0, 0.5),  
         "single_class_prototype_per_class": trial.suggest_int("single_class_prototype_per_class", 1, 20),
         "joint_prototypes_per_border": 0, 
-        "proto_time_len": args.proto_time_len,
+        # "proto_time_len": args.proto_time_len, # remove static hyperparam from trial params, avoids confusion when this param is unused for 1D models
         "lam_clst": 0.004, 
         "lam_sep": 0.0004, 
         "lam_spars": 0,
@@ -198,7 +199,7 @@ def objective(trial):
             model = ProtoECGNet2D(num_classes=num_classes, single_class_prototype_per_class=trial_params["single_class_prototype_per_class"], 
                                   joint_prototypes_per_border=trial_params["joint_prototypes_per_border"], proto_dim=args.proto_dim, 
                                   backbone=trial_params["backbone"], prototype_activation_function=args.prototype_activation_function, 
-                                  proto_time_len=trial_params["proto_time_len"], latent_space_type=args.latent_space_type, add_on_layers_type=args.add_on_layers_type, 
+                                  proto_time_len=args.proto_time_len, latent_space_type=args.latent_space_type, add_on_layers_type=args.add_on_layers_type,
                                   class_specific=args.class_specific, last_layer_connection_weight=args.last_layer_connection_weight, 
                                   m=args.m, custom_groups=args.custom_groups, label_set = args.label_set, dropout=trial_params["dropout"], pretrained_weights=args.pretrained_weights)
         else:
