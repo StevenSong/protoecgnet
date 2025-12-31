@@ -199,7 +199,7 @@ class ProtoECGNet2D(nn.Module):
             ignore_class_mismatch = False
             allowable_mismatches = set(["prototype_class_identity", "classifier.weight"])
             if "classifier.weight" in new_state_dict:
-                loaded_output_n = new_state_dict["prototype_vectors"].shape[0]
+                loaded_output_n = new_state_dict["classifier.weight"].shape[0]
                 if loaded_output_n != self.num_classes:
                     print(f"Checkpoint contains {loaded_output_n} target classes but model initialized with {self.num_classes} targets. This may be expected if this is a transfer setting, however this is otherwise likely an error.")
                     ignore_class_mismatch = True

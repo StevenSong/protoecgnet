@@ -101,7 +101,8 @@ def _get_echonext_fusion_dataloaders(args, return_sample_ids):
             shuffle=shuffle,
             collate_fn=collate_fn,
             num_workers=args.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            persistent_workers=True,
         )
 
     return (
@@ -151,7 +152,8 @@ def _get_ptbxl_fusion_dataloaders(args, return_sample_ids):
             shuffle=shuffle,
             collate_fn=collate_fn,
             num_workers=args.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            persistent_workers=True,
         )
 
     return (

@@ -477,9 +477,9 @@ def get_ptbxl_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set
     sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
     val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=True)
     
     return train_loader, val_loader, test_loader, class_weights
 
@@ -522,8 +522,8 @@ def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_
     sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
     val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num)
-    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=True)
+
     return train_loader, val_loader, test_loader, class_weights

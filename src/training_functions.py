@@ -298,14 +298,14 @@ class ECGTrainer(pl.LightningModule):
         cm = multilabel_confusion_matrix(all_labels, all_preds)
 
         # Log confusion matrix, ROC, and PR curves to TensorBoard
-        if self.logger:
-            fig_cm = self.plot_confusion_matrix(cm)
-            fig_roc = self.plot_roc_curve(all_labels, all_probs)
-            fig_pr = self.plot_pr_curve(all_labels, all_probs)
+        # if self.logger:
+        #     fig_cm = self.plot_confusion_matrix(cm)
+        #     fig_roc = self.plot_roc_curve(all_labels, all_probs)
+        #     fig_pr = self.plot_pr_curve(all_labels, all_probs)
 
-            self.logger.experiment.add_figure("Test/Confusion_Matrix", fig_cm, global_step=self.current_epoch)
-            self.logger.experiment.add_figure("Test/ROC_Curve", fig_roc, global_step=self.current_epoch)
-            self.logger.experiment.add_figure("Test/PR_Curve", fig_pr, global_step=self.current_epoch)
+        #     self.logger.experiment.add_figure("Test/Confusion_Matrix", fig_cm, global_step=self.current_epoch)
+        #     self.logger.experiment.add_figure("Test/ROC_Curve", fig_roc, global_step=self.current_epoch)
+        #     self.logger.experiment.add_figure("Test/PR_Curve", fig_pr, global_step=self.current_epoch)
 
     def plot_confusion_matrix(self, cm):
         num_classes = cm.shape[0]
