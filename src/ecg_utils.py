@@ -1,3 +1,6 @@
+from typing import Literal
+from fractions import Fraction
+
 import pandas as pd
 import numpy as np
 import wfdb
@@ -8,13 +11,18 @@ from sklearn.preprocessing import StandardScaler
 import pickle
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 import matplotlib.pyplot as plt
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, resample_poly
 
 # FILE PATHS TO CHANGE
 # HPC
-DATASET_PATH = "/gpfs/data/bbj-lab/users/sethis/physionet.org/files/ptb-xl/1.0.3"
-STANDARDIZATION_PATH = '/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing'
-SCP_GROUP_PATH = "scp_statementsRegrouped2.csv"
+# DATASET_PATH = "/gpfs/data/bbj-lab/users/sethis/physionet.org/files/ptb-xl/1.0.3"
+# STANDARDIZATION_PATH = '/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing'
+# SCP_GROUP_PATH = "scp_statementsRegrouped2.csv"
+
+# redefining for echonext
+DATASET_PATH = "/opt/gpudata/ecg/echonext"
+SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
+STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/protoecgnet-cache"
 
 def remove_baseline_wander(X, sampling_rate=100, cutoff=0.5, order=1):
     """
@@ -39,6 +47,9 @@ def remove_baseline_wander(X, sampling_rate=100, cutoff=0.5, order=1):
     
     return X
 
+# NOTE external reference outside this file
+# no need to modify for EchoNext, unspecific to dataset as long as ECG is 100 Hz
+# (we'll handle the conversion to 100 Hz in a different data loading function)
 def plot_ecg(
     raw_ecg,
     sampling_rate=100,
@@ -175,9 +186,25 @@ def apply_standardizer(X, ss, mode):
         X_std = X_std.T.reshape(X.shape[1], X.shape[0], -1).transpose(1, 0, 2)  
         return X_std.reshape(X_shape)  # Restore (N, 12, H, W)
 
+# NOTE support for EchoNext relies on custom groups, particularly, given that there
+# is not a priori knowledge of how certain SHD labels are interpreted relative
+# to 1D/2D partial/2D global convolutions, we just duplicate labels across groups
+# and set the path to the custom groupings using SCP_GROUP_PATH (the name doesn't
+# quite apply but just a convenience to reuse the same consts)
 def load_label_mappings(custom_groups=False, prototype_category=None):
+    # heuristic to try and detect if we're using echonext data
+    # if-so, then require that custom_groups be set
+    if "echonext" in DATASET_PATH.lower():
+        assert custom_groups, "Cannot use EchoNext data without custom groups"
+        # for adapting protoecgnet to echonext, prefer not to modify source echonext at DATASET_PATH
+        # so use SCP_GROUP_PATH as fully qualified path
+        custom_group_csv = SCP_GROUP_PATH
+    else:
+        # in original protoecgnet over ptb-xl, SCP_GROUP_PATH is a file inside DATASET_PATH
+        custom_group_csv = os.path.join(DATASET_PATH, SCP_GROUP_PATH)
+
     if custom_groups:
-        label_df = pd.read_csv(os.path.join(DATASET_PATH, SCP_GROUP_PATH), index_col=0) 
+        label_df = pd.read_csv(custom_group_csv, index_col=0) 
 
         # Ensure the new column exists
         assert "prototype_category" in label_df.columns, "Missing 'prototype_category' column in regrouped SCP file."
@@ -223,8 +250,44 @@ def load_label_mappings(custom_groups=False, prototype_category=None):
             "scp_to_subclass": scp_to_subclass
         }
 
+def load_raw_echonext_data(sampling_rate, label_type, split: Literal["train", "val", "test"], custom_groups=True):
+    assert custom_groups, "Cannot use EchoNext data without custom groups"
+    label_mappings: dict[str, list[str]] = load_label_mappings(
+        custom_groups=custom_groups,
+        prototype_category=int(label_type),
+    )
+    selected_labels = label_mappings["custom"]
 
-def load_raw_data(sampling_rate, label_type, df, custom_groups=False):
+    df = pd.read_csv(os.path.join(DATASET_PATH, "EchoNext_metadata_100k.csv"))
+    assert not df["ecg_key"].duplicated().any()
+    assert not df["ecg_key"].isna().any()
+    
+    split_df = df.loc[df["split"] == split]
+    y = split_df[selected_labels].to_numpy()
+    sample_ids = split_df["ecg_key"].to_numpy()
+
+    # load waveforms preprocessed by echonext authors 
+    # (includes median filter and dataset-wide standardization)
+    X = np.load(os.path.join(DATASET_PATH, f"EchoNext_{split}_waveforms.npy")) # (N, 1, 2500, 12)
+    print(f"Loaded {split} waveforms from disk")
+    assert X.shape[1:] == (1, 2500, 12)
+
+    # downsample to target frequency
+    resample_frac = Fraction(
+        numerator=sampling_rate,
+        denominator=250, # EchoNext preprocessed data is 250 Hz
+    ).limit_denominator(100)
+    X = resample_poly(X, up=resample_frac.numerator, down=resample_frac.denominator, axis=2)  # (N, 1, 10*freq, 12)
+    print("Resampled waveforms to target frequency")
+    assert X.shape[1:] == (1, 10*sampling_rate, 12)
+
+    # dataset classes expect squeezed tensor
+    X = X.squeeze(1) # (N, 10*freq, 12)
+
+    return X, y, sample_ids
+
+
+def load_raw_ptbxl_data(sampling_rate, label_type, df, custom_groups=False):
     label_mappings = load_label_mappings(custom_groups=custom_groups,
                                 prototype_category=None if not custom_groups else int(label_type))
     selected_labels = label_mappings["custom"] if custom_groups else label_mappings[label_type]
@@ -310,11 +373,21 @@ def load_raw_data(sampling_rate, label_type, df, custom_groups=False):
 
     return X, y, valid_indices
 
- #Dataset Classes 
-class PTBXL_Dataset_1D(Dataset):
-    def __init__(self, X, y, sample_ids=None, return_sample_ids=False):
-        self.X = torch.tensor(X, dtype=torch.float32).permute(0, 2, 1)  # (N, 12, 1000)
-        self.y = torch.tensor(y, dtype=torch.float32) 
+# Dataset Classes 
+class ECG_Dataset(Dataset):
+    def __init__(self, X, y, mode, sample_ids=None, return_sample_ids=False):
+        # X should have shape (N, T, L) where:
+        # - N is the number of samples,
+        # - T is the number of time points,
+        # - L is the number of leads
+        # for a 10-second, 100 Hz, 12-lead ECG, T=1000 and L=12
+        if mode == "1D":
+            self.X = torch.tensor(X, dtype=torch.float32).permute(0, 2, 1)  # (N, L, T)
+        elif mode == "2D":
+            self.X = torch.tensor(X, dtype=torch.float32).unsqueeze(1).permute(0, 1, 3, 2)  # (N, 1, L, T)
+        else:
+            raise ValueError(f"Unknown ECG dataset mode {mode} (expected either `1D` or `2D`)")
+        self.y = torch.tensor(y, dtype=torch.float32)
         self.sample_ids = sample_ids if sample_ids is not None else np.arange(len(y)) 
         self.return_sample_ids = return_sample_ids 
 
@@ -327,24 +400,32 @@ class PTBXL_Dataset_1D(Dataset):
         else: 
             return self.X[idx], self.y[idx]
 
-class PTBXL_Dataset_2D(Dataset):
-    def __init__(self, X, y, sample_ids=None, return_sample_ids=False):
-        self.X = torch.tensor(X, dtype=torch.float32).unsqueeze(1).permute(0, 1, 3, 2)  # (N, 1, 12, 1000)
-        self.y = torch.tensor(y, dtype=torch.float32)  
-        self.sample_ids = sample_ids if sample_ids is not None else np.arange(len(y)) 
-        self.return_sample_ids = return_sample_ids 
 
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        if self.return_sample_ids: 
-            return self.X[idx], self.y[idx], self.sample_ids[idx]
-        else: 
-            return self.X[idx], self.y[idx]
-
+# NOTE external reference outside this file
+# detect PTB-XL vs EchoNext based on DATASET_PATH
 # DataLoader Function
 def get_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="superdiagnostic", work_num=4, return_sample_ids=False, custom_groups=False, standardize=False, remove_baseline=False):
+    _PATH = DATASET_PATH.lower()
+    if "ptbxl" in _PATH or "ptb-xl" in _PATH:
+        get_dl_fn = get_ptbxl_dataloaders
+    elif "echonext" in _PATH or "echo-next" in _PATH:
+        get_dl_fn = get_echonext_dataloaders
+    else:
+        raise ValueError(f"Could not infer dataset type based on DATASET_PATH={DATASET_PATH}")
+
+    return get_dl_fn(
+        batch_size=batch_size,
+        mode=mode,
+        sampling_rate=sampling_rate,
+        label_set=label_set,
+        work_num=work_num,
+        return_sample_ids=return_sample_ids,
+        custom_groups=custom_groups,
+        standardize=standardize,
+        remove_baseline=remove_baseline,
+    )
+
+def get_ptbxl_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="superdiagnostic", work_num=4, return_sample_ids=False, custom_groups=False, standardize=False, remove_baseline=False):
     df = pd.read_csv(os.path.join(DATASET_PATH, "ptbxl_database.csv"), index_col="ecg_id")
     df.scp_codes = df.scp_codes.apply(lambda x: ast.literal_eval(x)) 
     
@@ -353,9 +434,9 @@ def get_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="supe
     val_df = df[df.strat_fold == 9]
     test_df = df[df.strat_fold == 10]
     
-    X_train, y_train, train_sample_ids = load_raw_data(sampling_rate, label_set, train_df, custom_groups=custom_groups)
-    X_val, y_val, val_sample_ids = load_raw_data(sampling_rate, label_set, val_df, custom_groups=custom_groups)
-    X_test, y_test, test_sample_ids = load_raw_data(sampling_rate, label_set, test_df, custom_groups=custom_groups)
+    X_train, y_train, train_sample_ids = load_raw_ptbxl_data(sampling_rate, label_set, train_df, custom_groups=custom_groups)
+    X_val, y_val, val_sample_ids = load_raw_ptbxl_data(sampling_rate, label_set, val_df, custom_groups=custom_groups)
+    X_test, y_test, test_sample_ids = load_raw_ptbxl_data(sampling_rate, label_set, test_df, custom_groups=custom_groups)
 
     # Compute class weights
     def compute_class_weights(y):
@@ -388,20 +469,84 @@ def get_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="supe
     print(f"Label distribution (Test): {np.sum(y_test, axis=0)}")
     print(f"Training set class weights: {class_weights}")
     
-    train_dataset = PTBXL_Dataset_1D(X_train, y_train, train_sample_ids, return_sample_ids) if mode == '1D' else \
-                    PTBXL_Dataset_2D(X_train, y_train, train_sample_ids, return_sample_ids)
-    val_dataset = PTBXL_Dataset_1D(X_val, y_val, val_sample_ids, return_sample_ids) if mode == '1D' else \
-                  PTBXL_Dataset_2D(X_val, y_val, val_sample_ids, return_sample_ids)
-    test_dataset = PTBXL_Dataset_1D(X_test, y_test, test_sample_ids, return_sample_ids) if mode == '1D' else \
-                   PTBXL_Dataset_2D(X_test, y_test, test_sample_ids, return_sample_ids)
+    train_dataset = ECG_Dataset(X_train, y_train, mode, train_sample_ids, return_sample_ids)
+    val_dataset = ECG_Dataset(X_val, y_val, mode, val_sample_ids, return_sample_ids)
+    test_dataset = ECG_Dataset(X_test, y_test, mode, test_sample_ids, return_sample_ids)
 
     #Get validation set class weights for weighted random sampler
     val_class_weights = compute_class_weights(y_val) 
     sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
     val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=work_num > 0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
     
+    return train_loader, val_loader, test_loader, class_weights
+
+# EchoNext dataloader signature matches ptbxl dataloader precisely, though some variables should be unset
+def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="superdiagnostic", work_num=4, return_sample_ids=False, custom_groups=False, standardize=False, remove_baseline=False):
+    if standardize or remove_baseline:
+        raise ValueError("If using EchoNext data, do not set `standardize` or `remove_baseline` for data preprocessing. EchoNext data comes preprocessed with median filtering and standardization. Currently unexplored if baseline wander should be addressed separately.")
+
+    os.makedirs(STANDARDIZATION_PATH, exist_ok=True)
+    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{sampling_rate}hz.npz")
+    if not os.path.exists(cache_file):
+        X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
+        X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
+        X_test, y_test, test_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "test", custom_groups=custom_groups)
+        np.savez(
+            cache_file,
+            X_train=X_train, y_train=y_train, train_sample_ids=train_sample_ids,
+            X_val=X_val, y_val=y_val, val_sample_ids=val_sample_ids,
+            X_test=X_test, y_test=y_test, test_sample_ids=test_sample_ids,
+        )
+        print(f"Cached EchoNext data transformed to {sampling_rate}Hz to {cache_file}")
+    with np.load(cache_file) as cached:
+        X_train = cached["X_train"]
+        y_train = cached["y_train"]
+        train_sample_ids = cached["train_sample_ids"]
+        X_val = cached["X_val"]
+        y_val = cached["y_val"]
+        val_sample_ids = cached["val_sample_ids"]
+        X_test = cached["X_test"]
+        y_test = cached["y_test"]
+        test_sample_ids = cached["test_sample_ids"]
+        print(f"Loaded cached EchoNext data from {cache_file}")
+
+
+    # Compute class weights
+    def compute_class_weights(y):
+        class_counts = np.sum(y, axis=0)  
+        total_samples = sum(class_counts)
+        class_weights = torch.tensor([(total_samples - c) / c for c in class_counts], dtype=torch.float32)
+        return torch.tensor(class_weights, dtype=torch.float32)
+
+    class_weights = compute_class_weights(y_train)
+
+    # below is largely the same as get_ptbxl_dataloaders, could probably refactor
+    # but keep separate for now to improve clarity (maybe...)
+    print("\n--- Data Summary ---")
+    print(f"Training set: {len(X_train)} samples, Validation set: {len(X_val)} samples, Test set: {len(X_test)} samples")
+    print(f"Loaded training data: X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+    print(f"Loaded validation data: X_val shape: {X_val.shape}, y_val shape: {y_val.shape}")
+    print(f"Loaded test data: X_test shape: {X_test.shape}, y_test shape: {y_test.shape}")
+    print(f"Label distribution (Train): {np.sum(y_train, axis=0)}")
+    print(f"Label distribution (Validation): {np.sum(y_val, axis=0)}")
+    print(f"Label distribution (Test): {np.sum(y_test, axis=0)}")
+    print(f"Training set class weights: {class_weights}")
+
+    train_dataset = ECG_Dataset(X_train, y_train, mode, train_sample_ids, return_sample_ids)
+    val_dataset = ECG_Dataset(X_val, y_val, mode, val_sample_ids, return_sample_ids)
+    test_dataset = ECG_Dataset(X_test, y_test, mode, test_sample_ids, return_sample_ids)
+
+    #Get validation set class weights for weighted random sampler
+    val_class_weights = compute_class_weights(y_val) 
+    sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
+    val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=work_num > 0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
+
     return train_loader, val_loader, test_loader, class_weights

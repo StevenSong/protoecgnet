@@ -123,15 +123,15 @@ class ProtoECGNet2D(nn.Module):
         try:
             if self.custom_groups:
                 if self.label_set == "1":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat1.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt"
                 elif self.label_set == "3":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat3.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt"
                 elif self.label_set == "4":
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_Cat4.pt"
+                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt"
                 else:
-                    path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur.pt"
+                    raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
             else:
-                path = "/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing/label_cooccur_all.pt"
+                raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
 
             cooc_matrix = torch.load(path)
             self.label_cooccurrence = cooc_matrix.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
@@ -195,6 +195,17 @@ class ProtoECGNet2D(nn.Module):
                 self.num_prototypes = loaded_prototypes
                 self.prototype_shape = (self.num_prototypes, proto_dim, 1, proto_time_len)
 
+            # Detect number of output classes in the checkpoint (which may differ in the transfer setting)
+            ignore_class_mismatch = False
+            allowable_mismatches = set(["prototype_class_identity", "classifier.weight"])
+            if "classifier.weight" in new_state_dict:
+                loaded_output_n = new_state_dict["classifier.weight"].shape[0]
+                if loaded_output_n != self.num_classes:
+                    print(f"Checkpoint contains {loaded_output_n} target classes but model initialized with {self.num_classes} targets. This may be expected if this is a transfer setting, however this is otherwise likely an error.")
+                    ignore_class_mismatch = True
+                    for x in allowable_mismatches:
+                        del new_state_dict[x]
+
             #Adjust shape of prototype_vectors and classifier to match checkpoint
             self.ones = nn.Parameter(torch.ones(self.prototype_shape), requires_grad=False)
             self.prototype_vectors = nn.Parameter(torch.randn(*self.prototype_shape), requires_grad=True)
@@ -211,7 +222,12 @@ class ProtoECGNet2D(nn.Module):
             # else:
             #     print("[WARNING] No `prototype_class_identity` found in checkpoint! Using initialized values.")
 
-            self.load_state_dict(new_state_dict, strict=True)
+            incompatible_keys = self.load_state_dict(new_state_dict, strict=False)
+            if (
+                (len(incompatible_keys.unexpected_keys) != 0) or
+                (not ignore_class_mismatch and len(set(incompatible_keys.missing_keys) - allowable_mismatches) != 0)
+            ):
+                raise ValueError(f"Incompatible keys found while loading state dict: {incompatible_keys}")
 
     def _create_prototype_labels(self, num_classes, single_class_prototype_per_class, joint_prototypes_per_border):
         """Assigns class identities to prototypes (single-class & dual-class) and prints debugging info."""
