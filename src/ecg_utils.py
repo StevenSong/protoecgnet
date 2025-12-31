@@ -22,6 +22,7 @@ from scipy.signal import butter, filtfilt, resample_poly
 # redefining for echonext
 DATASET_PATH = "/opt/gpudata/ecg/echonext"
 SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
+STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/protoecgnet-cache"
 
 def remove_baseline_wander(X, sampling_rate=100, cutoff=0.5, order=1):
     """
@@ -477,9 +478,9 @@ def get_ptbxl_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set
     sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
     val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=work_num > 0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
     
     return train_loader, val_loader, test_loader, class_weights
 
@@ -488,9 +489,31 @@ def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_
     if standardize or remove_baseline:
         raise ValueError("If using EchoNext data, do not set `standardize` or `remove_baseline` for data preprocessing. EchoNext data comes preprocessed with median filtering and standardization. Currently unexplored if baseline wander should be addressed separately.")
 
-    X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
-    X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
-    X_test, y_test, test_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "test", custom_groups=custom_groups)
+    os.makedirs(STANDARDIZATION_PATH, exist_ok=True)
+    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{sampling_rate}hz.npz")
+    if not os.path.exists(cache_file):
+        X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
+        X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
+        X_test, y_test, test_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "test", custom_groups=custom_groups)
+        np.savez(
+            cache_file,
+            X_train=X_train, y_train=y_train, train_sample_ids=train_sample_ids,
+            X_val=X_val, y_val=y_val, val_sample_ids=val_sample_ids,
+            X_test=X_test, y_test=y_test, test_sample_ids=test_sample_ids,
+        )
+        print(f"Cached EchoNext data transformed to {sampling_rate}Hz to {cache_file}")
+    with np.load(cache_file) as cached:
+        X_train = cached["X_train"]
+        y_train = cached["y_train"]
+        train_sample_ids = cached["train_sample_ids"]
+        X_val = cached["X_val"]
+        y_val = cached["y_val"]
+        val_sample_ids = cached["val_sample_ids"]
+        X_test = cached["X_test"]
+        y_test = cached["y_test"]
+        test_sample_ids = cached["test_sample_ids"]
+        print(f"Loaded cached EchoNext data from {cache_file}")
+
 
     # Compute class weights
     def compute_class_weights(y):
@@ -522,8 +545,8 @@ def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_
     sample_weights = np.dot(y_val, val_class_weights.numpy())  # Assign sample weights based on label presence
     val_sampler = WeightedRandomSampler(sample_weights, num_samples=len(y_val), replacement=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=work_num, persistent_workers=work_num > 0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=work_num, persistent_workers=work_num > 0)
 
     return train_loader, val_loader, test_loader, class_weights
