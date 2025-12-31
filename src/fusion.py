@@ -102,7 +102,7 @@ def _get_echonext_fusion_dataloaders(args, return_sample_ids):
             collate_fn=collate_fn,
             num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=args.num_workers > 0,
         )
 
     return (
@@ -153,7 +153,7 @@ def _get_ptbxl_fusion_dataloaders(args, return_sample_ids):
             collate_fn=collate_fn,
             num_workers=args.num_workers,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=args.num_workers > 0,
         )
 
     return (

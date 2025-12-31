@@ -62,11 +62,11 @@ parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else
 parser.add_argument('--sampling_rate', type=int, choices=[100, 500], default=100, help="ECG sampling rate")
 parser.add_argument('--label_set', type=str, choices=['superdiagnostic', 'subdiagnostic', 'all', 'diagnostic', 'form', 'rhythm', '1', '2', '3', '4'], default='superdiagnostic')
 parser.add_argument('--num_workers', type=int, default=4, help="Number of data loading workers")
-parser.add_argument('--dimension', type=str, choices=['1D', '2D'], required=True, help='Specify whether the model is 1D or 2D')
+parser.add_argument('--dimension', type=str, choices=['1D', '2D'], required=False, help='Specify whether the model is 1D or 2D')
 parser.add_argument('--backbone', type=str, choices=[
     'resnet1d18', 'resnet1d34', 'resnet1d50', 'resnet1d101', 'resnet1d152',
     'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'
-], required=True, help='Specify the backbone architecture')
+], required=False, help='Specify the backbone architecture')
 parser.add_argument('--custom_groups', type=str2bool, default=False, help='Flag to use custom label groupings')
 parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
 parser.add_argument('--standardize', type=str2bool, default=False, help='Whether to standardize input ECG signals')
@@ -92,6 +92,9 @@ parser.add_argument('--fusion_joint_ppb1', type=int, default=0, help='Joint prot
 parser.add_argument('--fusion_joint_ppb3', type=int, default=0, help='Joint prototypes per border for category 3')
 parser.add_argument('--fusion_joint_ppb4', type=int, default=0, help='Joint prototypes per border for category 4')
 args = parser.parse_args()
+if args.training_stage != "fusion":
+    assert args.backbone is not None, "Must specify --backbone if training_stage is not fusion"
+    assert args.dimension is not None, "Must specify --dimension if training_stage is not fusion"
 
 # Define directories for this job's trials
 job_checkpoint_dir = os.path.join(args.checkpoint_dir, args.job_name)
@@ -125,6 +128,10 @@ class OptunaPruning(PyTorchLightningPruningCallback, pl.Callback):
 def objective(trial):
     """Optuna objective function for hyperparameter tuning."""
 
+    # reduce hyperparameter search space if training final classification models
+    # as the single_class_prototype_per_class is determined from the model checkpoint
+    max_scppc = 20 if args.training_stage not in ["fusion", "classifier"] else 1
+
     # Define hyperparameter search space
     trial_params = {
         "backbone": args.backbone, 
@@ -132,11 +139,11 @@ def objective(trial):
         "scheduler_type": trial.suggest_categorical("scheduler", [
             "ReduceLROnPlateau", "CosineAnnealingLR", "CyclicLR"
         ]),
-        "batch_size": args.batch_size, # 2048 batch size is max power of 2 batch size for 80GB of VRAM for both 1D and 2D models, find optimal LR for this batch size, unsure if other params affected by batch size
+        "batch_size": args.batch_size, # fix batch size and find optimal LR, unsure if other params affected by batch size
         "l2": trial.suggest_float("l2", 1e-6, 1e-2, log=True), 
         "l1": trial.suggest_float("l1", 1e-6, 1e-2, log=True),  #args.l1
         "dropout": trial.suggest_float("dropout", 0.0, 0.5),  
-        "single_class_prototype_per_class": trial.suggest_int("single_class_prototype_per_class", 1, 20),
+        "single_class_prototype_per_class": trial.suggest_int("single_class_prototype_per_class", 1, max_scppc),
         "joint_prototypes_per_border": 0, 
         # "proto_time_len": args.proto_time_len, # remove static hyperparam from trial params, avoids confusion when this param is unused for 1D models
         "lam_clst": 0.004, 
@@ -154,16 +161,18 @@ def objective(trial):
     trial_checkpoint_dir = os.path.join(job_checkpoint_dir, trial_name)
     os.makedirs(trial_checkpoint_dir, exist_ok=True)
 
-    print("Loading label mappings...")
-    label_mappings = load_label_mappings(
-        custom_groups=args.custom_groups,
-        prototype_category=int(args.label_set) if args.custom_groups else None
-    )
+    if args.training_stage != 'fusion':
+        # only need label mappings if not using fusion, allows custom_groups and label_set args to be unset
+        print("Loading label mappings...")
+        label_mappings = load_label_mappings(
+            custom_groups=args.custom_groups,
+            prototype_category=int(args.label_set) if args.custom_groups else None
+        )
 
-    if args.custom_groups:
-        num_classes = len(label_mappings["custom"])
-    else:
-        num_classes = len(label_mappings[args.label_set])
+        if args.custom_groups:
+            num_classes = len(label_mappings["custom"])
+        else:
+            num_classes = len(label_mappings[args.label_set])
 
     if args.training_stage != 'fusion':
         train_loader, val_loader, test_loader, class_weights = get_dataloaders(
@@ -178,7 +187,9 @@ def objective(trial):
             class_wts=None
 
     # Initialize model
-    model = eval(trial_params["backbone"])(num_classes=num_classes, dropout=trial_params["dropout"])
+    # NOTE I think it's safe to remove this line, seems like model gets instantiated in all conditional cases
+    # model = eval(trial_params["backbone"])(num_classes=num_classes, dropout=trial_params["dropout"])
+
     # Model selection
     print(f"Selecting model: {trial_params['backbone']} with dimension {args.dimension} for stage {args.training_stage}...")
     if args.training_stage == "feature_extractor":
@@ -277,7 +288,7 @@ def objective(trial):
             single_class_prototype_per_class=args.fusion_single_ppc3,
             joint_prototypes_per_border=args.fusion_joint_ppb3,
             proto_dim=args.fusion_proto_dim3,
-            proto_time_len=args.proto_time_len,
+            proto_time_len=args.proto_time_len, # TODO maybe parameterize this better? also see model_2d_global init below
             backbone=args.fusion_backbone3,
             prototype_activation_function=args.prototype_activation_function,
             latent_space_type=args.latent_space_type,
@@ -297,7 +308,7 @@ def objective(trial):
             single_class_prototype_per_class=args.fusion_single_ppc4,
             joint_prototypes_per_border=args.fusion_joint_ppb4,
             proto_dim=args.fusion_proto_dim4,
-            proto_time_len=32,
+            proto_time_len=32, # TODO maybe parameterize this better? also see model_2d_partial init above
             backbone=args.fusion_backbone4,
             prototype_activation_function=args.prototype_activation_function,
             latent_space_type=args.latent_space_type,
