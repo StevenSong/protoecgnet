@@ -1,3 +1,4 @@
+import hashlib
 from typing import Literal
 from fractions import Fraction
 
@@ -20,7 +21,9 @@ from scipy.signal import butter, filtfilt, resample_poly
 # SCP_GROUP_PATH = "scp_statementsRegrouped2.csv"
 
 # redefining for echonext
-DATASET_PATH = "/opt/gpudata/ecg/echonext"
+if "ECHONEXT_DATA" in os.environ:
+    print("Using `ECHONEXT_DATA` env var defined path to EchoNext data") # useful for pointing to data subsets
+DATASET_PATH = os.environ.get("ECHONEXT_DATA", "/opt/gpudata/ecg/echonext") # default to full dataset
 SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
 STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/protoecgnet-cache"
 
@@ -490,7 +493,9 @@ def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_
         raise ValueError("If using EchoNext data, do not set `standardize` or `remove_baseline` for data preprocessing. EchoNext data comes preprocessed with median filtering and standardization. Currently unexplored if baseline wander should be addressed separately.")
 
     os.makedirs(STANDARDIZATION_PATH, exist_ok=True)
-    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{sampling_rate}hz.npz")
+    # use a short hash of the source dataest path to distinguish different sources (e.g. if using different dataset subsets)
+    src_hash = hashlib.md5(DATASET_PATH.encode("utf-8")).hexdigest()[:8]
+    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{sampling_rate}hz_{src_hash}.npz")
     if not os.path.exists(cache_file):
         X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
         X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
