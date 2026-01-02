@@ -269,25 +269,40 @@ def load_raw_echonext_data(sampling_rate, label_type, split: Literal["train", "v
     y = split_df[selected_labels].to_numpy()
     sample_ids = split_df["ecg_key"].to_numpy()
 
-    # load waveforms preprocessed by echonext authors 
-    # (includes median filter and dataset-wide standardization)
-    X = np.load(os.path.join(DATASET_PATH, f"EchoNext_{split}_waveforms.npy")) # (N, 1, 2500, 12)
-    print(f"Loaded {split} waveforms from disk")
-    assert X.shape[1:] == (1, 2500, 12)
-
-    # downsample to target frequency
-    resample_frac = Fraction(
-        numerator=sampling_rate,
-        denominator=250, # EchoNext preprocessed data is 250 Hz
-    ).limit_denominator(100)
-    X = resample_poly(X, up=resample_frac.numerator, down=resample_frac.denominator, axis=2)  # (N, 1, 10*freq, 12)
-    print("Resampled waveforms to target frequency")
-    assert X.shape[1:] == (1, 10*sampling_rate, 12)
-
-    # dataset classes expect squeezed tensor
-    X = X.squeeze(1) # (N, 10*freq, 12)
+    X = load_cached_echonext_data(sampling_rate, split)
 
     return X, y, sample_ids
+
+def load_cached_echonext_data(sampling_rate, split):
+    # loading and resampling can be time intensive, so cache transformed data if it doesn't already exist
+    os.makedirs(STANDARDIZATION_PATH, exist_ok=True)
+
+    # use a short hash of the source dataest path to distinguish different sources (e.g. if using different dataset subsets)
+    src_hash = hashlib.md5(DATASET_PATH.encode("utf-8")).hexdigest()[:8]
+    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{split}_{sampling_rate}hz_{src_hash}.npy")
+    if not os.path.exists(cache_file):
+        # load waveforms preprocessed by echonext authors
+        # (includes median filter and dataset-wide standardization)
+        X = np.load(os.path.join(DATASET_PATH, f"EchoNext_{split}_waveforms.npy")) # (N, 1, 2500, 12)
+        print(f"Loaded {split} waveforms from disk")
+        assert X.shape[1:] == (1, 2500, 12)
+
+        # downsample to target frequency
+        resample_frac = Fraction(
+            numerator=sampling_rate,
+            denominator=250, # EchoNext preprocessed data is 250 Hz
+        ).limit_denominator(100)
+        X = resample_poly(X, up=resample_frac.numerator, down=resample_frac.denominator, axis=2)  # (N, 1, 10*freq, 12)
+        print("Resampled waveforms to target frequency")
+        assert X.shape[1:] == (1, 10*sampling_rate, 12)
+
+        # dataset classes expect squeezed tensor
+        X = X.squeeze(1) # (N, 10*freq, 12)
+        np.save(cache_file, X)
+        print(f"Cached EchoNext {split} data transformed to {sampling_rate}Hz to {cache_file}")
+    X = np.load(cache_file)
+    print(f"Loaded cached EchoNext {split} data transformed to {sampling_rate}Hz from {cache_file}")
+    return X
 
 
 def load_raw_ptbxl_data(sampling_rate, label_type, df, custom_groups=False):
@@ -487,38 +502,15 @@ def get_ptbxl_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set
     
     return train_loader, val_loader, test_loader, class_weights
 
+
 # EchoNext dataloader signature matches ptbxl dataloader precisely, though some variables should be unset
 def get_echonext_dataloaders(batch_size=32, mode="2D", sampling_rate=100, label_set="superdiagnostic", work_num=4, return_sample_ids=False, custom_groups=False, standardize=False, remove_baseline=False):
     if standardize or remove_baseline:
         raise ValueError("If using EchoNext data, do not set `standardize` or `remove_baseline` for data preprocessing. EchoNext data comes preprocessed with median filtering and standardization. Currently unexplored if baseline wander should be addressed separately.")
 
-    os.makedirs(STANDARDIZATION_PATH, exist_ok=True)
-    # use a short hash of the source dataest path to distinguish different sources (e.g. if using different dataset subsets)
-    src_hash = hashlib.md5(DATASET_PATH.encode("utf-8")).hexdigest()[:8]
-    cache_file = os.path.join(STANDARDIZATION_PATH, f"echonext_{sampling_rate}hz_{src_hash}.npz")
-    if not os.path.exists(cache_file):
-        X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
-        X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
-        X_test, y_test, test_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "test", custom_groups=custom_groups)
-        np.savez(
-            cache_file,
-            X_train=X_train, y_train=y_train, train_sample_ids=train_sample_ids,
-            X_val=X_val, y_val=y_val, val_sample_ids=val_sample_ids,
-            X_test=X_test, y_test=y_test, test_sample_ids=test_sample_ids,
-        )
-        print(f"Cached EchoNext data transformed to {sampling_rate}Hz to {cache_file}")
-    with np.load(cache_file) as cached:
-        X_train = cached["X_train"]
-        y_train = cached["y_train"]
-        train_sample_ids = cached["train_sample_ids"]
-        X_val = cached["X_val"]
-        y_val = cached["y_val"]
-        val_sample_ids = cached["val_sample_ids"]
-        X_test = cached["X_test"]
-        y_test = cached["y_test"]
-        test_sample_ids = cached["test_sample_ids"]
-        print(f"Loaded cached EchoNext data from {cache_file}")
-
+    X_train, y_train, train_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "train", custom_groups=custom_groups)
+    X_val, y_val, val_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "val", custom_groups=custom_groups)
+    X_test, y_test, test_sample_ids = load_raw_echonext_data(sampling_rate, label_set, "test", custom_groups=custom_groups)
 
     # Compute class weights
     def compute_class_weights(y):
