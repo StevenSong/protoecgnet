@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -125,11 +126,20 @@ class ProtoECGNet1D(nn.Module):
         try:
             if self.custom_groups:
                 if self.label_set == "1":
-                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt"
+                    path = os.path.join(
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt",
+                    )
                 elif self.label_set == "3":
-                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt"
+                    path = os.path.join(
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt",
+                    )
                 elif self.label_set == "4":
-                    path = "/opt/gpudata/steven/ecg-prototype-transfer/runs/protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt"
+                    path = os.path.join(
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt",
+                    )
                 else:
                     raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
             else:
