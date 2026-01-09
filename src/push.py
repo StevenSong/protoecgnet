@@ -6,6 +6,11 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from ecg_utils import load_label_mappings, plot_ecg
 
+IGNORE_LABELS = bool(os.environ.get("IGNORE_LABELS", False))
+if IGNORE_LABELS:
+    print("IGNORE_LABELS ENV VAR SET, WILL NOT DO LABEL MATCHING WHILE PROJECTING PROTOTYPES")
+
+
 def log_ecg_to_tensorboard_1d(
     logger,
     ecg_signal,
@@ -317,14 +322,17 @@ def push_prototypes1d(model, dataloader, save_dir, label_set, job_name, logger=N
                 class_names = [label_mapping[idx] for idx in class_indices]
 
                 for i in range(activations.shape[0]):  # loop over batch samples
-                    if label_matches(y_batch[i].cpu().numpy(), class_indices):
+                    if label_matches(y_batch[i].cpu().numpy(), class_indices) or IGNORE_LABELS:
                         score = activations[i, j]
                         if score > best_scores[j]:
                             best_scores[j] = score
                             best_features[j] = features[i]
                             ecg_id = int(sample_ids[i].cpu().item())
 
-                            if len(class_names) == 1:
+                            if IGNORE_LABELS:
+                                prototype_class = "N/A"
+                                second_class = None
+                            elif len(class_names) == 1:
                                 prototype_class = class_names[0]
                                 second_class = None
                             elif len(class_names) == 2:
@@ -337,7 +345,7 @@ def push_prototypes1d(model, dataloader, save_dir, label_set, job_name, logger=N
                                 "ecg_id": ecg_id,
                                 "prototype_class": prototype_class,
                                 "true_labels": y_batch[i].cpu().numpy().tolist(),
-                                "class_type": "dual" if second_class else "single",
+                                "class_type": "N/A" if IGNORE_LABELS else "dual" if second_class else "single",
                                 "similarity_score": float(score.cpu().numpy())
                             }
                             final_prototype_assignments[j] = {
@@ -345,7 +353,7 @@ def push_prototypes1d(model, dataloader, save_dir, label_set, job_name, logger=N
                                 "ecg_data": X_batch[i].cpu().numpy(),
                                 "prototype_class": prototype_class,
                                 "true_labels": y_batch[i].cpu().numpy(),
-                                "class_type": "dual" if second_class else "single",
+                                "class_type": "N/A" if IGNORE_LABELS else "dual" if second_class else "single",
                                 "similarity_score": float(score.cpu().numpy())
                             }
                             if second_class:
@@ -475,7 +483,7 @@ def push_prototypes2d(model, dataloader, save_dir, label_set, job_name, logger=N
                 class_names = [label_mapping[idx] for idx in class_indices]
 
                 for b in range(batch_size):
-                    if any(y_batch[b, class_idx] == 1 for class_idx in class_indices):
+                    if any(y_batch[b, class_idx] == 1 for class_idx in class_indices) or IGNORE_LABELS:
                         score = activations[b, j].max()
                         if score > best_scores[j]:
                             best_scores[j] = score
@@ -500,7 +508,10 @@ def push_prototypes2d(model, dataloader, save_dir, label_set, job_name, logger=N
                             ecg_id = int(sample_ids[max_ecg_idx].cpu().item())
 
                             # Assign class metadata correctly
-                            if len(class_names) == 1:
+                            if IGNORE_LABELS:
+                                prototype_class = "N/A"
+                                second_class = None
+                            elif len(class_names) == 1:
                                 prototype_class = class_names[0]
                                 second_class = None
                             elif len(class_names) == 2:
@@ -513,7 +524,7 @@ def push_prototypes2d(model, dataloader, save_dir, label_set, job_name, logger=N
                                 "ecg_id": ecg_id,
                                 "prototype_class": prototype_class,
                                 "true_labels": y_batch[max_ecg_idx].cpu().numpy().tolist(),
-                                "class_type": "dual" if second_class else "single",
+                                "class_type": "N/A" if IGNORE_LABELS else "dual" if second_class else "single",
                                 "similarity_score": float(best_scores[j].cpu().numpy())
                             }
                             final_prototype_assignments[j] = {
@@ -522,7 +533,7 @@ def push_prototypes2d(model, dataloader, save_dir, label_set, job_name, logger=N
                                 "prototype_segment": best_segments[j].cpu().numpy(),  # Extracted prototype segment
                                 "true_labels": y_batch[max_ecg_idx].cpu().numpy(),
                                 "prototype_class": prototype_class,
-                                "class_type": "dual" if second_class else "single",
+                                "class_type": "N/A" if IGNORE_LABELS else "dual" if second_class else "single",
                                 "similarity_score": float(best_scores[j].cpu().numpy())
                             }
                             if second_class:
