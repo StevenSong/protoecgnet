@@ -24,8 +24,8 @@ from scipy.signal import butter, filtfilt, resample_poly
 if "ECHONEXT_DATA" in os.environ:
     print("Using `ECHONEXT_DATA` env var defined path to EchoNext data") # useful for pointing to data subsets
 DATASET_PATH = os.environ.get("ECHONEXT_DATA", "/opt/gpudata/ecg/echonext") # default to full dataset
-SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
-STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-transfer/protoecgnet-cache"
+SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-fm/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
+STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-fm/protoecgnet-cache"
 
 def remove_baseline_wander(X, sampling_rate=100, cutoff=0.5, order=1):
     """

@@ -125,17 +125,17 @@ class ProtoECGNet2D(nn.Module):
             if self.custom_groups:
                 if self.label_set == "1":
                     path = os.path.join(
-                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
                         "protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt",
                     )
                 elif self.label_set == "3":
                     path = os.path.join(
-                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
                         "protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt",
                     )
                 elif self.label_set == "4":
                     path = os.path.join(
-                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-transfer/runs/"),
+                        os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
                         "protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt",
                     )
                 else:
