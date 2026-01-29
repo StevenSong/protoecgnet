@@ -128,17 +128,20 @@ class ProtoECGNet1D(nn.Module):
                 if self.label_set == "1":
                     path = os.path.join(
                         os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
-                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat1.pt",
+                        os.environ.get("COOC_DIR", "protoecgnet-echonext-coocurrence"),
+                        "label_cooccur_Cat1.pt",
                     )
                 elif self.label_set == "3":
                     path = os.path.join(
                         os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
-                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat3.pt",
+                        os.environ.get("COOC_DIR", "protoecgnet-echonext-coocurrence"),
+                        "label_cooccur_Cat3.pt",
                     )
                 elif self.label_set == "4":
                     path = os.path.join(
                         os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
-                        "protoecgnet-echonext-cooccurrence/label_cooccur_Cat4.pt",
+                        os.environ.get("COOC_DIR", "protoecgnet-echonext-coocurrence"),
+                        "label_cooccur_Cat4.pt",
                     )
                 else:
                     raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")

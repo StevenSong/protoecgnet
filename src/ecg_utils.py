@@ -18,13 +18,27 @@ from scipy.signal import butter, filtfilt, resample_poly
 # HPC
 # DATASET_PATH = "/gpfs/data/bbj-lab/users/sethis/physionet.org/files/ptb-xl/1.0.3"
 # STANDARDIZATION_PATH = '/gpfs/data/bbj-lab/users/sethis/experiments/preprocessing'
-# SCP_GROUP_PATH = "scp_statementsRegrouped2.csv"
+# SCP_GROUP_PATH = "/path/to/scp_statementsRegrouped2.csv"
 
-# redefining for echonext
+# make dynamic to read env vars, default to echonext in this fork
+# useful for pointing to data subsets
+if "DATASET_PATH" in os.environ and "ECHONEXT_DATA" in os.environ:
+    raise ValueError("Cannot use both DATASET_PATH and ECHONEXT_DATA env vars to define dataset")
 if "ECHONEXT_DATA" in os.environ:
-    print("Using `ECHONEXT_DATA` env var defined path to EchoNext data") # useful for pointing to data subsets
-DATASET_PATH = os.environ.get("ECHONEXT_DATA", "/opt/gpudata/ecg/echonext") # default to full dataset
-SCP_GROUP_PATH = "/opt/gpudata/steven/ecg-prototype-fm/external/bbj-lab-protoecgnet/echonext_label_groups.csv"
+    # support backwards compatibility with original experiment scripts over only echonext subsets
+    print("PROTOECGNET.ecg_utils - Using `ECHONEXT_DATA` env var defined path to EchoNext data")
+    DATASET_PATH = os.environ.get("ECHONEXT_DATA")
+elif "DATASET_PATH" in os.environ:
+    print("PROTOECGNET.ecg_utils - Using `DATASET_PATH` env var defined path to data")
+    DATASET_PATH = os.environ.get("DATASET_PATH")
+else:
+    print("PROTOECGNET.ecg_utils - defaulting to full EchoNext data")
+    DATASET_PATH = "/opt/gpudata/ecg/echonext" # default to full dataset
+
+if "SCP_GROUP_PATH" in os.environ:
+    print("PROTOECGNET.ecg_utils - Using `SCP_GROUP_PATH` env var")
+SCP_GROUP_PATH = os.environ.get("SCP_GROUP_PATH", "/opt/gpudata/steven/ecg-prototype-fm/external/bbj-lab-protoecgnet/echonext_label_groups.csv")
+
 STANDARDIZATION_PATH = "/opt/gpudata/steven/ecg-prototype-fm/protoecgnet-cache"
 
 def remove_baseline_wander(X, sampling_rate=100, cutoff=0.5, order=1):
@@ -152,7 +166,8 @@ def plot_ecg(
     return fig
 
 def standardize_signals(X_train, X_val, X_test, output_folder, mode):
-    scaler_path = os.path.join(output_folder, f"standard_scaler_{mode}.pkl")
+    src_hash = hashlib.md5(DATASET_PATH.encode("utf-8")).hexdigest()[:8]
+    scaler_path = os.path.join(output_folder, f"standard_scaler_{mode}_{src_hash}.pkl")
     if os.path.exists(scaler_path):
         with open(scaler_path, "rb") as f:
             ss = pickle.load(f)
@@ -199,12 +214,9 @@ def load_label_mappings(custom_groups=False, prototype_category=None):
     # if-so, then require that custom_groups be set
     if "echonext" in DATASET_PATH.lower():
         assert custom_groups, "Cannot use EchoNext data without custom groups"
-        # for adapting protoecgnet to echonext, prefer not to modify source echonext at DATASET_PATH
-        # so use SCP_GROUP_PATH as fully qualified path
-        custom_group_csv = SCP_GROUP_PATH
-    else:
-        # in original protoecgnet over ptb-xl, SCP_GROUP_PATH is a file inside DATASET_PATH
-        custom_group_csv = os.path.join(DATASET_PATH, SCP_GROUP_PATH)
+
+    # change from original repo to use SCP_GROUP_PATH as fully qualified path
+    custom_group_csv = SCP_GROUP_PATH
 
     if custom_groups:
         label_df = pd.read_csv(custom_group_csv, index_col=0) 
