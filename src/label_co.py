@@ -8,6 +8,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--label-set", required=True)
     parser.add_argument("--save-path", required=True)
+    parser.add_argument("--custom-groups", action="store_true")
     args = parser.parse_args()
     assert not os.path.exists(args.save_path), f"Will not overwrite co-occurence matrix at {args.save_path}"
     os.makedirs(os.path.dirname(args.save_path), exist_ok=True)
@@ -16,12 +17,12 @@ if __name__ == "__main__":
 
     train_loader, _, _, _ = get_dataloaders(
         batch_size=128, 
-        mode='1D',
+        mode='2D',
         sampling_rate=100, 
         label_set=args.label_set,
         work_num=4,
         return_sample_ids=False,
-        custom_groups=True, 
+        custom_groups=args.custom_groups,
         standardize=False,
         remove_baseline=False, # should not matter as we only consider labels
     )

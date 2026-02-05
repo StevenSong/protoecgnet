@@ -144,7 +144,11 @@ class ProtoECGNet2D(nn.Module):
                 else:
                     raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
             else:
-                raise NotImplementedError("Must use cat 1, 3, or 4 custom groups for EchoNext")
+                path = os.path.join(
+                    os.environ.get("RUN_DIR", "/opt/gpudata/steven/ecg-prototype-fm/runs/"),
+                    os.environ.get("COOC_DIR", "protoecgnet-echonext-coocurrence"),
+                    f"label_cooccur_{self.label_set}.pt",
+                )
 
             cooc_matrix = torch.load(path)
             self.label_cooccurrence = cooc_matrix.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))

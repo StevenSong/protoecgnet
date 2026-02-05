@@ -216,10 +216,10 @@ def load_label_mappings(custom_groups=False, prototype_category=None):
         assert custom_groups, "Cannot use EchoNext data without custom groups"
 
     # change from original repo to use SCP_GROUP_PATH as fully qualified path
-    custom_group_csv = SCP_GROUP_PATH
+    group_csv = SCP_GROUP_PATH
 
     if custom_groups:
-        label_df = pd.read_csv(custom_group_csv, index_col=0) 
+        label_df = pd.read_csv(group_csv, index_col=0) 
 
         # Ensure the new column exists
         assert "prototype_category" in label_df.columns, "Missing 'prototype_category' column in regrouped SCP file."
@@ -236,7 +236,7 @@ def load_label_mappings(custom_groups=False, prototype_category=None):
             "custom": custom_labels,
         }
     else: 
-        label_df = pd.read_csv(os.path.join(DATASET_PATH, "scp_statements.csv"), index_col=0)
+        label_df = pd.read_csv(group_csv, index_col=0)
 
         # Extract mappings from SCP codes
         scp_to_superclass = label_df["diagnostic_class"].dropna().to_dict()  # SCP → Superclass
